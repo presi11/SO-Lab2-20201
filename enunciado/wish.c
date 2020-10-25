@@ -9,6 +9,29 @@ char **path;
 int pathLen = 0;
 static char error_message[25] = "An error has occurred\n";
 
+int consecutiveSpaces(char *input, int startIndex, short reverse)
+{
+    int spaces = 0;
+    int i = startIndex;
+    char actualChar = input[i];
+    while (actualChar == ' ' && (i < strlen(input) && i >= 0))
+    {
+        spaces++;
+        if (reverse == 0)
+        {
+            i++;
+        }
+        else
+        {
+            i--;
+        }
+
+        actualChar = input[i];
+    }
+
+    return spaces;
+}
+
 char *subString(const char *input, int offset, int len, char *dest)
 {
     int input_len = strlen(input);
@@ -33,14 +56,16 @@ void comandPath(char *comand)
     int startPathIndex = (startPath == NULL ? -1 : startPath - comand);
     char *acomulated = (char *)malloc(128);
     int nextLen;
+    int spaces;
     if (startPathIndex == -1)
     {
         return;
     }
     else
     {
-        nextLen = strlen(comand) - startPathIndex - 1;
-        subString(comand, startPathIndex + 1, nextLen, acomulated);
+        spaces = consecutiveSpaces(comand, startPathIndex, 0);
+        nextLen = strlen(comand) - startPathIndex - spaces;
+        subString(comand, startPathIndex + spaces, nextLen, acomulated);
     }
     do
     {
@@ -53,11 +78,12 @@ void comandPath(char *comand)
             subString(acomulated, 0, startPathIndex, nextPath);
             path = (char **)realloc(path, (pathLen) * sizeof(char *));
             path[pathLen - 1] = strdup(nextPath);
-            nextLen = strlen(acomulated) - startPathIndex - 1;
+            spaces = consecutiveSpaces(comand, startPathIndex, 0);
+            nextLen = strlen(acomulated) - startPathIndex - spaces;
             char temp[strlen(acomulated)];
             strcpy(temp, acomulated);
             acomulated = (char *)realloc(acomulated, startPathIndex);
-            subString(temp, startPathIndex + 1, nextLen, acomulated);
+            subString(temp, startPathIndex + spaces, nextLen, acomulated);
         }
         else
         {
@@ -106,6 +132,7 @@ char **getArguments(char *comand, char *lPath, int *argSize)
     char arg[64];
     char *temp;
     int nextLen;
+    int spaces;
     do
     {
 
@@ -116,13 +143,14 @@ char **getArguments(char *comand, char *lPath, int *argSize)
             argEndIndex = (argEndPoint == NULL ? -1 : argEndPoint - acomulated);
             if (argEndIndex > -1)
             {
+                spaces = consecutiveSpaces(acomulated, argEndIndex, 0);
                 subString(acomulated, 0, argEndIndex, arg);
                 arguments[numArgs] = strdup(arg);
                 numArgs++;
-                nextLen = strlen(acomulated) - argEndIndex - 1;
+                nextLen = strlen(acomulated) - argEndIndex - spaces;
                 temp = (char *)malloc(strlen(acomulated));
                 strcpy(temp, acomulated);
-                subString(temp, argEndIndex + 1, nextLen, acomulated);
+                subString(temp, argEndIndex + spaces, nextLen, acomulated);
                 free(temp);
             }
             else
@@ -137,17 +165,17 @@ char **getArguments(char *comand, char *lPath, int *argSize)
             argEndIndex = (argEndPoint == NULL ? -1 : argEndPoint - comand);
             if (argEndIndex > -1)
             {
+                spaces = consecutiveSpaces(comand, argEndIndex, 0);
                 int fullPathLen = strlen(lPath) + argEndIndex;
                 char fullPath[fullPathLen + 1];
                 strcpy(fullPath, lPath);
                 subString(comand, 0, argEndIndex, arg);
                 strcat(fullPath, "/");
                 strcat(fullPath, arg);
-                arguments[numArgs] = (char *)realloc(arguments[numArgs], fullPathLen);
-                strcpy(arguments[0], fullPath);
+                arguments[numArgs] = strdup(fullPath);
                 numArgs++;
-                nextLen = strlen(comand) - argEndIndex - 1;
-                subString(comand, argEndIndex + 1, nextLen, acomulated);
+                nextLen = strlen(comand) - argEndIndex - spaces;
+                subString(comand, argEndIndex + spaces, nextLen, acomulated);
             }
             else
             {
@@ -156,8 +184,7 @@ char **getArguments(char *comand, char *lPath, int *argSize)
                 strcpy(fullPath, lPath);
                 strcat(fullPath, "/");
                 strcat(fullPath, comand);
-                arguments[numArgs] = (char *)realloc(arguments[numArgs], fullPathLen);
-                strcpy(arguments[0], fullPath);
+                arguments[numArgs] = strdup(fullPath);
                 numArgs++;
             }
         }
@@ -198,11 +225,18 @@ void executeComand(char *comand)
     }
     else
     {
-        initCommand = (char *)malloc(redirectIndex - 1);
-        subString(comand, 0, redirectIndex - 1, initCommand);
-        int fileNameLen = strlen(comand) - redirectIndex - 2;
+        int spaces = consecutiveSpaces(comand, redirectIndex - 1, 1);
+        initCommand = (char *)malloc(redirectIndex - spaces);
+        subString(comand, 0, redirectIndex - spaces, initCommand);
+        spaces = consecutiveSpaces(comand, redirectIndex + 1, 0);
+        int fileNameLen = strlen(comand) - redirectIndex - spaces - 1;
+        if (fileNameLen == 0)
+        {
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            return;
+        }
         redirectFile = (char *)malloc(fileNameLen);
-        subString(comand, redirectIndex + 2, fileNameLen, redirectFile);
+        subString(comand, redirectIndex + spaces + 1, fileNameLen, redirectFile);
     }
 
     while ((i < pathLen) && (executed == 0))
@@ -223,7 +257,6 @@ void executeComand(char *comand)
                 dup2(fd, 1);
                 close(fd);
             }
-            // char* args[]={"/bin/ls","-la","./tests"};
             int successs = execv(arguments[0], arguments);
             if (successs < 0)
             {
@@ -248,6 +281,35 @@ void executeComand(char *comand)
     }
 };
 
+int selectComand(char *comand, int paralel)
+{
+    int exit = 0;
+    if (strncmp(comand, "exit", 4) == 0)
+    {
+        if (strlen(comand) < 5)
+        {
+            exit = 1;
+        }
+        else
+        {
+            write(STDERR_FILENO, error_message, strlen(error_message));
+        }
+    }
+    else if (strncmp(comand, "cd", 2) == 0)
+    {
+        comandCD(comand);
+    }
+    else if (strncmp(comand, "path", 4) == 0)
+    {
+        comandPath(comand);
+    }
+    else
+    {
+        executeComand(comand);
+    }
+    return exit;
+}
+
 int main(int argc, char const *argv[])
 {
     pathLen = 0;
@@ -257,7 +319,7 @@ int main(int argc, char const *argv[])
     if (argc < 2)
     {
         short exit = 0;
-        char *comand = NULL;
+        char *comand;
         size_t bytesNumber = 0;
         int readBytes;
         {
@@ -265,38 +327,42 @@ int main(int argc, char const *argv[])
             {
                 printf("wish> ");
                 readBytes = getline(&comand, &bytesNumber, stdin);
-                int comandLen = strlen(comand);
-                char realComand[comandLen];
-                strncpy(realComand, comand, comandLen - 1);
-                realComand[comandLen - 1] = '\0';
+                char realComand[readBytes];
+                strncpy(realComand, comand, readBytes - 1);
+                realComand[readBytes - 1] = '\0';
                 if (readBytes == -1)
                 {
                     return (0);
                 }
                 else if (readBytes > 1)
                 {
-                    if (strncmp(realComand, "exit", 4) == 0)
+
+                    FILE *file = fopen(realComand, "r");
+                    if (file == NULL)
                     {
-                        if (strlen(realComand) < 5)
-                        {
-                            exit = 1;
-                        }
-                        else
-                        {
-                            write(STDERR_FILENO, error_message, strlen(error_message));
-                        }
-                    }
-                    else if (strncmp(realComand, "cd", 2) == 0)
-                    {
-                        comandCD(realComand);
-                    }
-                    else if (strncmp(realComand, "path", 4) == 0)
-                    {
-                        comandPath(realComand);
+                        exit = selectComand(realComand, 0);
                     }
                     else
                     {
-                        executeComand(realComand);
+                        char *line;
+                        size_t len = 0;
+                        ssize_t read;
+                        while ((read = getline(&line, &len, file)) != -1)
+                        {
+                            char realLine[read];
+                            if (strchr(line, '\n') != NULL)
+                            {
+                                strncpy(realLine, line, read - 1);
+                                realLine[read - 1] = '\0';
+                            }
+                            else
+                            {
+                                strncpy(realLine, line, read);
+                            }
+                            
+                            exit = selectComand(realLine, 0);
+                        }
+                        fclose(file);
                     }
                 }
             } while (exit != 1);
