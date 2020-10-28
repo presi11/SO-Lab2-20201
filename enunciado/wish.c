@@ -9,6 +9,9 @@ char **path;
 int pathLen = 0;
 static char error_message[25] = "An error has occurred\n";
 
+
+//devuelve la cantidad de espacios consecutivos en un string a partir de un index dado
+//en caso de reverse == 1 se retrocederá en vez de avanzar en el string para contar
 int consecutiveSpaces(char *input, int startIndex, short reverse)
 {
     int spaces = 0;
@@ -122,7 +125,9 @@ void comandCD(char *comand)
     }
 }
 
-char **getArguments(char *comand, char *lPath, int *argSize)
+
+//devuelve una lista de strings con los argumentos de un comando no integrado
+char **getArguments(char *comand, int *argSize)
 {
     char **arguments = NULL;
     int numArgs = 0;
@@ -164,6 +169,7 @@ char **getArguments(char *comand, char *lPath, int *argSize)
     return arguments;
 }
 
+//libera el espacio ocupado por los argumentos de un comando
 void freeArguments(char **arguments, int argSize)
 {
     for (size_t i = 0; i < argSize; i++)
@@ -172,6 +178,7 @@ void freeArguments(char **arguments, int argSize)
     }
 }
 
+//ejecuta todos los comandos no integrados
 void executeComand(char *comand, int paralel)
 {
     size_t i = 0;
@@ -181,9 +188,9 @@ void executeComand(char *comand, int paralel)
     while ((i < pathLen) && (executed == 0))
     {
         int argSize;
-        char **arguments = getArguments(comand, path[i], &argSize);
+        char **arguments = getArguments(comand, &argSize);
         int rc = 0;
-        
+
         if (paralel == 0)
         {
             rc = fork();
@@ -195,6 +202,7 @@ void executeComand(char *comand, int paralel)
         }
         if (rc == 0)
         {
+            //obtengo la direccion del ejecutable
             int fullPathLen = strlen(path[i]) + strlen(arguments[0]);
             char fullPath[fullPathLen + 1];
             strcpy(fullPath, path[i]);
@@ -228,6 +236,7 @@ void executeComand(char *comand, int paralel)
     }
 };
 
+//segun el comando redirecciona al metodo correspondiente si es integrado o a la ejecucion general si no lo es
 int selectComand(char *comand, int paralel)
 {
     int exit = 0;
@@ -257,12 +266,17 @@ int selectComand(char *comand, int paralel)
     return exit;
 }
 
+
+//Se encarga de ver si el comando ingresado corresponde a un archivo o a un comando de verdad
+//ademas verifica si hay redireccion de la salida para ejecutarla
 int executeFileOrComand(char *comand, int paralel)
 {
     int exitConsole = 0;
 
     char *initCommand;
     char *redirectFile;
+
+    //busco el signo de redireccion para saber si es necesario realizarla
     char *redicetionPint = strchr(comand, '>');
     int redirectIndex = (redicetionPint == NULL ? -1 : redicetionPint - comand);
     int console = dup(1);
@@ -278,7 +292,9 @@ int executeFileOrComand(char *comand, int paralel)
     }
     else
     {
+        //si hay redireccion separo el comando del archivo destino
         int spaces = consecutiveSpaces(comand, redirectIndex - 1, 1);
+        //error si no hay comando
         if (redirectIndex - spaces == 0)
         {
             write(STDERR_FILENO, error_message, strlen(error_message));
@@ -288,6 +304,7 @@ int executeFileOrComand(char *comand, int paralel)
         subString(comand, 0, redirectIndex - spaces, initCommand);
         spaces = consecutiveSpaces(comand, redirectIndex + 1, 0);
         int fileNameLen = strlen(comand) - redirectIndex - spaces - 1;
+        //error si no hay archivo destino
         if (fileNameLen == 0)
         {
             write(STDERR_FILENO, error_message, strlen(error_message));
@@ -296,11 +313,13 @@ int executeFileOrComand(char *comand, int paralel)
         redirectFile = (char *)malloc(fileNameLen);
         subString(comand, redirectIndex + spaces + 1, fileNameLen, redirectFile);
         char *error = strchr(redirectFile, ' ');
+        //error si existe otro argumento despues de la redirección
         if (error != NULL)
         {
             write(STDERR_FILENO, error_message, strlen(error_message));
             return exitConsole;
         }
+        //error si hay mas de una redirección 
         error = strchr(redirectFile, '>');
         if (error != NULL)
         {
@@ -312,15 +331,17 @@ int executeFileOrComand(char *comand, int paralel)
 
     if (file == NULL)
     {
+        //si hay redirección se desvia a la salida al archivo destino
         if (redirectIndex != -1)
         {
             int fd = open(redirectFile, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
 
-            dup2(fd, 1); // make stdout go to file
+            dup2(fd, 1);
 
             close(fd);
         }
         exitConsole = selectComand(initCommand, paralel);
+        //despues de imprimir el comando se reestablece la salida a la consola
         if (redirectIndex != -1)
         {
             dup2(console, 1);
@@ -332,11 +353,12 @@ int executeFileOrComand(char *comand, int paralel)
         char *line;
         size_t len = 0;
         ssize_t read;
+        //si hay redirección se desvia a la salida al archivo destino
         if (redirectIndex != 1)
         {
             int fd = open(redirectFile, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
 
-            dup2(fd, 1); // make stdout go to file
+            dup2(fd, 1); 
 
             close(fd);
         }
@@ -359,6 +381,7 @@ int executeFileOrComand(char *comand, int paralel)
             exitConsole = selectComand(realLine, 0);
         }
         fclose(file);
+        //despues de imprimir el comando se reestablece la salida a la consola
         if (redirectIndex != -1)
         {
             dup2(console, 1);
@@ -372,6 +395,8 @@ int executeFileOrComand(char *comand, int paralel)
     return exitConsole;
 }
 
+
+//verifica si hay un llamado que implique paralelismo
 int execute(char *comand)
 {
     int exitBash = 0;
@@ -389,14 +414,13 @@ int execute(char *comand)
         strcpy(acomulated, comand);
         int comandLen;
         int spaces;
-        int pSize=0;
-        for (size_t i = 0; i <acomulatedLen ; i++)
+        int pSize = 0;
+        for (size_t i = 0; i < acomulatedLen; i++)
         {
-            if (acomulated[i]=='&')
+            if (acomulated[i] == '&')
             {
                 pSize++;
             }
-            
         }
         int pids[pSize + 1];
         int pNumber = 0;
@@ -450,11 +474,14 @@ int execute(char *comand)
 
 int main(int argc, char const *argv[])
 {
+    //path inicial
     pathLen = 0;
     path = (char **)realloc(path, (pathLen + 1) * sizeof(char *));
     path[pathLen] = strdup("/bin");
     pathLen++;
+    //señal para salir de la shell
     short exitBash = 0;
+    //comprobar si no hay mas argumentos para entrar en el modo bash
     if (argc < 2)
     {
         char *comand;
@@ -479,6 +506,7 @@ int main(int argc, char const *argv[])
             } while (exitBash == 0);
         }
     }
+    //en caso de que si halla otro argumento se intentara abrir el archivo para ejecutar las instrucciones
     else if (argc == 2)
     {
 
@@ -493,6 +521,7 @@ int main(int argc, char const *argv[])
             int spaces = 0;
             while (((read = getline(&line, &len, file)) != -1) && (exitBash == 0))
             {
+                //se omite el simbolo # que es usado como comentario
                 if (strchr(line, '#') != NULL)
                 {
                     continue;
